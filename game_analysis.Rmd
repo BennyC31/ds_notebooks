@@ -1,0 +1,67 @@
+---
+title: "game_analysis"
+output: html_document
+---
+
+```{r}
+result <- 4 + 3
+result
+```
+```{r}
+data <- read.csv('vw_gameresults.csv')
+head(data)
+```
+```{r}
+library(dplyr)
+library(tidyr)
+det_df <- read.csv('vw_gameteamresultsdetail.csv')
+leagyear_value = 2024
+df <- det_df %>%
+  filter(leagyear == leagyear_value, isfav == 1, iscover == 1) %>%
+  group_by(leagid,spread) %>%
+  summarise(iscover_sum = sum(iscover, na.rm = TRUE)) %>%
+  ungroup()
+df <- as.data.frame(df)
+head(df)
+```
+```{r}
+det1_df <- read.csv('vw_gameteamresultsdetail.csv')
+leagyear_value = 2024
+df1 <- det1_df %>%
+  filter(leagyear == leagyear_value, isfav == 1, ispush == 0) %>%
+  group_by(leagid,spread) %>%
+  summarise(
+    favcover = sum(iscover == 1, na.rm = TRUE),
+    dogcover = sum(iscover == 0, na.rm = TRUE)
+    ) %>%
+  ungroup() %>%
+  arrange(spread,leagid)
+df1 <- as.data.frame(df1)
+df1
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+df_nfl <- df1 %>% filter(leagid == 1)
+if(!is.numeric(df_nfl$spread)) {
+  df_nfl$spread <- as.numeric((as.character(df_nfl$spread)))
+}
+df_nfl <- df_nfl %>% arrange(spread)
+# df_nfl <- df_nfl[order(df_nfl$spread,decreasing = FALSE), ]
+df_nfl$spread <- factor(df_nfl$spread, levels = sort(unique(df_nfl$spread)))
+# df1 <- df1 %>% filter(spread >= 0 & spread <= 100)
+ggplot(df_nfl, aes(x = spread)) +
+  geom_bar(aes(y = favcover, fill = 'Favorite'), stat = 'identity', position = position_dodge()) +
+  geom_bar(aes(y = dogcover, fill = 'Dog'), stat = 'identity', position = position_dodge()) +
+  labs(
+    title = 'Cover Counts by Spread',
+    subtitle = 'Comparing Favs and Dogs',
+    x = 'Spread',
+    y = 'Covers',
+    fill = 'Cover Type'
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
