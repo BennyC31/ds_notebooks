@@ -1,12 +1,12 @@
 ---
 title: "game_analysis"
-output: html_document
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
 ---
 
-```{r}
-result <- 4 + 3
-result
-```
+
 ```{r}
 data <- read.csv('vw_gameresults.csv')
 head(data)
