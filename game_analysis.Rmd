@@ -1,67 +1,160 @@
 ---
-title: "game_analysis"
+title: "Game Analysis"
+author: "Benjamin Calderaio, Jr."
+date: "`r Sys.Date()`"
 output:
   word_document: default
-  html_document: default
   pdf_document: default
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
 ---
-
-
+## Libraries
 ```{r}
-data <- read.csv('vw_gameresults.csv')
-head(data)
-```
-```{r}
+library(DBI)
+library(RMariaDB)
 library(dplyr)
 library(tidyr)
-det_df <- read.csv('vw_gameteamresultsdetail.csv')
-leagyear_value = 2024
-df <- det_df %>%
-  filter(leagyear == leagyear_value, isfav == 1, iscover == 1) %>%
-  group_by(leagid,spread) %>%
-  summarise(iscover_sum = sum(iscover, na.rm = TRUE)) %>%
-  ungroup()
-df <- as.data.frame(df)
-head(df)
-```
-```{r}
-det1_df <- read.csv('vw_gameteamresultsdetail.csv')
-leagyear_value = 2024
-df1 <- det1_df %>%
-  filter(leagyear == leagyear_value, isfav == 1, ispush == 0) %>%
-  group_by(leagid,spread) %>%
-  summarise(
-    favcover = sum(iscover == 1, na.rm = TRUE),
-    dogcover = sum(iscover == 0, na.rm = TRUE)
-    ) %>%
-  ungroup() %>%
-  arrange(spread,leagid)
-df1 <- as.data.frame(df1)
-df1
-```
-```{r}
-library(dplyr)
 library(ggplot2)
-df_nfl <- df1 %>% filter(leagid == 1)
-if(!is.numeric(df_nfl$spread)) {
-  df_nfl$spread <- as.numeric((as.character(df_nfl$spread)))
+```
+
+## Environment Variables
+Get variables from .Renviron
+```{r, echo=FALSE,include=FALSE}
+readRenviron("/Users/benc/Projects/r_proj/ds_notebooks/.Renviron")
+```
+
+## Functions
+
+
+```{r, echo=FALSE,include=FALSE}
+db_con <- function() {
+  con <- dbConnect(
+    RMariaDB::MariaDB(),
+    dbname = Sys.getenv("MYSQL_DBNAME"),
+    host = Sys.getenv("MYSQL_HOST"),
+    user = Sys.getenv("MYSQL_USER"),
+    password = Sys.getenv("MYSQL_PASSWORD")
+  )
+  return(con)
 }
-df_nfl <- df_nfl %>% arrange(spread)
-# df_nfl <- df_nfl[order(df_nfl$spread,decreasing = FALSE), ]
-df_nfl$spread <- factor(df_nfl$spread, levels = sort(unique(df_nfl$spread)))
-# df1 <- df1 %>% filter(spread >= 0 & spread <= 100)
-ggplot(df_nfl, aes(x = spread)) +
-  geom_bar(aes(y = favcover, fill = 'Favorite'), stat = 'identity', position = position_dodge()) +
-  geom_bar(aes(y = dogcover, fill = 'Dog'), stat = 'identity', position = position_dodge()) +
-  labs(
-    title = 'Cover Counts by Spread',
-    subtitle = 'Comparing Favs and Dogs',
-    x = 'Spread',
-    y = 'Covers',
-    fill = 'Cover Type'
-  ) +
-  theme_minimal() +
-  theme(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+```{r, echo=FALSE,include=FALSE}
+get_query <- function(table_name) {
+# data <- read.csv('vw_gameresults.csv')
+  dbname <- Sys.getenv("MYSQL_DBNAME")
+  query <- sprintf("SELECT * FROM %s.%s",dbname,table_name)
+  return(query)
+}
+```
+
+
+
+```{r}
+#' Get Database Data
+#'
+#' This function returns data from a database table.
+#'
+#' @param con The database connection
+#' @param query The database query used to return the table rows
+#' @return The results in a data frame
+#' @examples
+#' data <- get_data(con,qry)
+get_data <- function(con,query) {
+  tryCatch({
+    result_df <- dbGetQuery(con, query)
+    return(result_df)
+  }, error = function(e) {
+    print(paste("An error occurred:", e))
+  }, finally = {
+    dbDisconnect(con)
+  })
+}
+```
+
+
+```{r}
+get_detail_fav_covers_by_year <- function(leagyear,det_df) {
+  # det_df <- read.csv('vw_gameteamresultsdetail.csv')
+  # det_df <- data
+  leagyear_value <- leagyear
+  df <- det_df %>%
+    filter(leagyear == leagyear_value, isfav == 1, iscover == 1) %>%
+    group_by(leagid,spread) %>%
+    summarise(iscover_sum = sum(iscover, na.rm = TRUE), .groups = "drop") %>%
+    ungroup()
+  df <- as.data.frame(df)
+  return(df)
+}
+```
+
+
+
+```{r}
+get_detail_fav_covers_v_dog_covers_by_year <- function(leagyear,det_df) {
+  # det1_df <- read.csv('vw_gameteamresultsdetail.csv')
+  leagyear_value <- leagyear
+  df1 <- det_df %>%
+    filter(leagyear == leagyear_value, isfav == 1, ispush == 0) %>%
+    group_by(leagid,spread) %>%
+    summarise(
+      favcover = sum(iscover == 1, na.rm = TRUE),
+      dogcover = sum(iscover == 0, na.rm = TRUE), .groups = "drop"
+      ) %>%
+    ungroup() %>%
+    arrange(spread,leagid)
+  df1 <- as.data.frame(df1)
+  return(df1)
+}
+```
+
+```{r}
+create_bar_chart <- function(data) {
+  df_nfl <- data %>% filter(leagid == 1)
+  if(!is.numeric(df_nfl$spread)) {
+    df_nfl$spread <- as.numeric((as.character(df_nfl$spread)))
+  }
+  df_nfl <- df_nfl %>% arrange(spread)
+  # df_nfl <- df_nfl[order(df_nfl$spread,decreasing = FALSE), ]
+  df_nfl$spread <- factor(df_nfl$spread, levels = sort(unique(df_nfl$spread)))
+  # df1 <- df1 %>% filter(spread >= 0 & spread <= 100)
+  ggplot(df_nfl, aes(x = spread)) +
+    geom_bar(aes(y = favcover, fill = 'Favorite'), stat = 'identity', position = position_dodge()) +
+    geom_bar(aes(y = dogcover, fill = 'Dog'), stat = 'identity', position = position_dodge()) +
+    labs(
+      title = 'Common Spread Covers',
+      subtitle = 'Comparing Favorites and Dogs',
+      x = 'Spread',
+      y = 'Covers',
+      fill = 'Cover Type'
+    ) +
+    theme_minimal() +
+    theme(legend.position = 'top') +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+}
+```
+
+```{r}
+main <- function() {
+  con <- db_con()
+  qry <- get_query(Sys.getenv("TABLE_GAMEDETAILS"))
+  data <- get_data(con,qry)
+  
+  fav_df <- get_detail_fav_covers_by_year(2024,data)
+  print('Favorite Covers')
+  print(head(fav_df))
+  
+  df <- get_detail_fav_covers_v_dog_covers_by_year(2024,data)
+  print('Favorite Covers v. Dog Covers')
+  print(head(df))
+  create_bar_chart(df)
+  
+}
+```
+## Output
+```{r}
+main()
 ```
 
