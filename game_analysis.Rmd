@@ -65,12 +65,10 @@ Gets csv data and returns a data frame.
 #' Get csv Data
 #'
 #' This function returns data from a database table.
-#'
-#' @param con The database connection
-#' @param query The database query used to return the table rows
+#' @param fpath the file path and name
 #' @return The results in a data frame
 #' @examples
-#' data <- get_data(con,qry)
+#' data <- get_csv_data('filepath/filename.csv')
 get_csv_data <- function(fpath) {
   tryCatch({
     result_df <- read.csv(fpath)
