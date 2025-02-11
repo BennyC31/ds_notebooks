@@ -4,25 +4,33 @@ author: "Benjamin Calderaio, Jr."
 date: "`r Sys.Date()`"
 output:
   word_document: default
+  # always_allow_html: true
   pdf_document: default
   html_document:
     toc: true
     toc_float: true
     code_folding: hide
+    selfcontained: true
 ---
 ## Libraries
 ```{r}
 library(DBI)
 library(RMariaDB)
-library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(plotly)
+library(htmlwidgets)
+library(reshape2)
+library(dplyr)
 ```
 
 ## Environment Variables
 Get variables from .Renviron
 ```{r, echo=FALSE,include=FALSE}
 readRenviron("/Users/benc/Projects/r_proj/ds_notebooks/.Renviron")
+
+# Set plotly to render offline for static documents
+# plotly::config(p = plot_ly(), displayModeBar = FALSE)  # Example config for no mode bar
 ```
 
 ## Functions
@@ -41,17 +49,40 @@ db_con <- function() {
 }
 ```
 
+### get_query
+Returns a query string.
 ```{r, echo=FALSE,include=FALSE}
 get_query <- function(table_name) {
-# data <- read.csv('vw_gameresults.csv')
   dbname <- Sys.getenv("MYSQL_DBNAME")
   query <- sprintf("SELECT * FROM %s.%s",dbname,table_name)
   return(query)
 }
 ```
 
+### get_csv_data
+Gets csv data and returns a data frame.
+```{r}
+#' Get csv Data
+#'
+#' This function returns data from a database table.
+#'
+#' @param con The database connection
+#' @param query The database query used to return the table rows
+#' @return The results in a data frame
+#' @examples
+#' data <- get_data(con,qry)
+get_csv_data <- function(fpath) {
+  tryCatch({
+    result_df <- read.csv(fpath)
+    return(result_df)
+  }, error = function(e) {
+    print(paste("An error occurred:", e))
+  })
+}
+```
 
-
+### get_data
+Gets data from a database table and returns a data frame.
 ```{r}
 #' Get Database Data
 #'
@@ -74,11 +105,10 @@ get_data <- function(con,query) {
 }
 ```
 
-
+### get_detail_fav_covers_by_year
+Transforms detail spread for favorites and returns a data frame.
 ```{r}
 get_detail_fav_covers_by_year <- function(leagyear,det_df) {
-  # det_df <- read.csv('vw_gameteamresultsdetail.csv')
-  # det_df <- data
   leagyear_value <- leagyear
   df <- det_df %>%
     filter(leagyear == leagyear_value, isfav == 1, iscover == 1) %>%
@@ -90,8 +120,8 @@ get_detail_fav_covers_by_year <- function(leagyear,det_df) {
 }
 ```
 
-
-
+### get_detail_fav_covers_v_dog_covers_by_year
+Transforms detail spread for favorites v underdogs and returns a data frame.
 ```{r}
 get_detail_fav_covers_v_dog_covers_by_year <- function(leagyear,det_df) {
   # det1_df <- read.csv('vw_gameteamresultsdetail.csv')
@@ -110,49 +140,152 @@ get_detail_fav_covers_v_dog_covers_by_year <- function(leagyear,det_df) {
 }
 ```
 
+### create_plotly_spread_bar_chart
+Creates a bar chart for favorites v underdogs.
 ```{r}
-create_bar_chart <- function(data) {
+create_plotly_spread_bar_chart <- function(data) {
   df_nfl <- data %>% filter(leagid == 1)
   if(!is.numeric(df_nfl$spread)) {
     df_nfl$spread <- as.numeric((as.character(df_nfl$spread)))
   }
   df_nfl <- df_nfl %>% arrange(spread)
-  # df_nfl <- df_nfl[order(df_nfl$spread,decreasing = FALSE), ]
   df_nfl$spread <- factor(df_nfl$spread, levels = sort(unique(df_nfl$spread)))
-  # df1 <- df1 %>% filter(spread >= 0 & spread <= 100)
-  ggplot(df_nfl, aes(x = spread)) +
-    geom_bar(aes(y = favcover, fill = 'Favorite'), stat = 'identity', position = position_dodge()) +
-    geom_bar(aes(y = dogcover, fill = 'Dog'), stat = 'identity', position = position_dodge()) +
-    labs(
-      title = 'Common Spread Covers',
-      subtitle = 'Comparing Favorites and Dogs',
-      x = 'Spread',
-      y = 'Covers',
-      fill = 'Cover Type'
-    ) +
-    theme_minimal() +
-    theme(legend.position = 'top') +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+  if (is.factor(df_nfl$spread)) {
+    df_nfl$spread <- as.numeric(as.character(df_nfl$spread))
+  }
+  
+  new_df <- data.frame(
+    spread = df_nfl$spread,
+    favorite = df_nfl$favcover,
+    underdog = df_nfl$dogcover
+  )
+  # Sort data by offense total yards in descending order
+  data_sorted_off <- new_df[order(-new_df$spread), ]
+  
+  # Reshape data for plotly, mapping variable names to readable labels
+  data_long <- melt(data_sorted_off, id.vars = "spread", variable.name = "type", value.name = "covers")
+  data_long$type <- ifelse(data_long$type == "favorite", "favorite", "underdog")
+  
+  # Plotly bar chart
+  plot <- plot_ly(data = data_long,
+                  x = ~spread, 
+                  y = ~covers, 
+                  color = ~type, 
+                  type = "bar",
+                  colors = c("favorite" = "blue", "underdog" = "orange")) %>%
+    layout(title = "Favorite vs Underdog Spread cover",
+           xaxis = list(title = "Spread", tickangle = -90),
+           yaxis = list(title = "Covers"),
+           barmode = 'group')  # This sets bars to be side by side
+  
+  print(plot)
+
+  # htmlwidgets::saveWidget(plot, "fav_dog_spread.html", selfcontained = TRUE)
 }
 ```
 
+### create_ggplot_team_bar_chart
+Creates a bar chart using ggplot for total offensive and defensive yards.
 ```{r}
-main <- function() {
-  con <- db_con()
-  qry <- get_query(Sys.getenv("TABLE_GAMEDETAILS"))
-  data <- get_data(con,qry)
-  
-  fav_df <- get_detail_fav_covers_by_year(2024,data)
-  print('Favorite Covers')
-  print(head(fav_df))
-  
-  df <- get_detail_fav_covers_v_dog_covers_by_year(2024,data)
-  print('Favorite Covers v. Dog Covers')
-  print(head(df))
-  create_bar_chart(df)
-  
+create_ggplot_team_bar_chart <- function(data) {
+  df_nfl <- data
+  new_df <- data.frame(
+    teamname = as.character(df_nfl$teamname),  # Convert teamname to character
+    offense = df_nfl$offtotyds,
+    defense = df_nfl$deftotyds
+  )
+  df <- suppressWarnings(tidyr::gather(new_df, yards, total, offense:defense))  # Create long format
+
+  # Sort by total yards descending for each team (optional, if you want sorting)
+  # df$teamname <- factor(df$teamname, levels = unique(df$teamname[order(df$total, decreasing = TRUE)]))
+
+  plot <- ggplot(df, aes(teamname, total, fill=yards))
+  plot <- plot +
+    geom_bar(stat = "identity", position = 'dodge') +
+    labs(title = "Offense vs Defense Total Yards", x = "Team", y = "Total Yards", fill = "Type") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("offense" = "blue", "defense" = "orange"))
+
+  print(plot)
+
 }
 ```
+
+### create_ggplot_team_box_chart
+Creates team box charts using ggplot for total offensive and defensive yard distrubtion.
+```{r}
+create_ggplot_team_box_chart <- function(data) {
+  data_sorted_off <- data
+  # Boxplot for defense total yards
+  box_plot_d <- ggplot(data_sorted_off, aes(x = teamname, y = defense)) +
+    geom_boxplot(fill = "red") +
+    labs(title = "Distribution of Defense Total Yards",x = "Team", y = "Total Yards") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(box_plot_d)
+  
+  box_plot_o <- ggplot(data_sorted_off, aes(x = teamname, y = offense)) +
+    geom_boxplot() +
+    labs(title = "Distribution of Offense Total Yards",x = "Team", y = "Total Yards") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(box_plot_o)
+}
+```
+
+
+### create_plotly_team_bar_chart
+Creates a bar chart using plotly for total offensive and defensive yards.
+```{r}
+create_plotly_team_bar_chart <- function(data) {
+  df_nfl <- data
+  new_df <- data.frame(
+    teamname = df_nfl$teamname,
+    offense = df_nfl$offtotyds,
+    defense = df_nfl$deftotyds
+  )
+  # Sort data by offense total yards in descending order
+  data_sorted_off <- new_df[order(-new_df$offense), ]
+  
+  # Reshape data for plotly, mapping variable names to readable labels
+  data_long <- melt(data_sorted_off, id.vars = "teamname", variable.name = "type", value.name = "yards")
+  data_long$type <- ifelse(data_long$type == "offense", "offense", "defense")
+  
+  # Plotly bar chart
+  plot <- plot_ly(data = data_long,
+                  x = ~teamname, 
+                  y = ~yards, 
+                  color = ~type, 
+                  type = "bar",
+                  colors = c("offense" = "blue", "defense" = "orange")) %>%
+    layout(title = "Offense vs Defense Total Yards",
+           xaxis = list(title = "Team", tickangle = -45),
+           yaxis = list(title = "Total Yards"),
+           barmode = 'group')  # This sets bars to be side by side
+  print(plot)
+  
+  create_ggplot_team_box_chart(data_sorted_off)
+  # htmlwidgets::saveWidget(plot, "off_def_totyds.html", selfcontained = TRUE)
+}
+```
+
+## main
+R Markdown main method.
+```{r}
+main <- function(){
+  csv_data <- get_csv_data('teamseasontotals_2024.csv')
+  create_ggplot_team_bar_chart(csv_data)
+  create_plotly_team_bar_chart(csv_data)
+  
+  con <- db_con()
+  qry <- get_query(Sys.getenv("TABLE_GAMEDETAILS"))
+  db_data <- get_data(con,qry)
+
+  df <- get_detail_fav_covers_v_dog_covers_by_year(2024,db_data)
+  create_plotly_spread_bar_chart(df)
+}
+```
+
 ## Output
 ```{r}
 main()
