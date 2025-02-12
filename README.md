@@ -27,3 +27,7 @@ Public notebooks used for data science projects.
 - **game_analysis.pdf**
 
     PDF file for game_anaylsis R Markdown.
+
+- **jupyter_game_analysis.html**
+
+    HTML file for nb_game_analysis jupyter notebook.
